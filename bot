@@ -1,0 +1,125 @@
+#!/usr/bin/env php
+<?php
+
+namespace ImageProcessing;
+
+use mysqli;
+use Requests;
+
+require_once 'vendor/rmccue/requests/library/Requests.php';
+Requests::register_autoloader();
+
+/**
+ * Class Bot
+ * Downloads images from the Internet
+ */
+class Bot
+{
+    private $cfg = [
+        'db_host'      => 'localhost',
+        'db_user'      => 'root',
+        'db_password'  => 'root',
+        'db_db'        => 'images',
+        'download_dir' => './downloads',
+        'user_agent'   => 'Mozilla/5.0 (X11; Linux x86_64; rv:44.0) Gecko/20100101 Firefox/44.0',
+    ];
+
+    private $QUEUE_DOWNLOAD = 1; // URLs ready to be downloaded
+    private $QUEUE_DONE = 2; // completed URLs
+    private $QUEUE_FAILED = 3; // failed URLs
+
+    private $mysqli;
+
+    public function __construct()
+    {
+        $this->mysqli = new mysqli($this->cfg['db_host'], $this->cfg['db_user'], $this->cfg['db_password'], $this->cfg['db_db']);
+        if ($this->mysqli->connect_errno) {
+            $this->error('Unable to connect to MySQL: ' . $this->mysqli->connect_error);
+        }
+    }
+
+    /**
+     * Schedule URLs for download
+     * @param $filename
+     */
+    public function actionSchedule($filename)
+    {
+        $urls = file($filename);
+        if (!$urls) {
+            $this->error("Unable to read $filename");
+        }
+        foreach ($urls as $url) {
+            $url = trim($url);
+            if (!$url) {
+                continue; // skip empty strings
+            }
+            $queueId = preg_match('#https?://#', $url) ? $this->QUEUE_DOWNLOAD : $this->QUEUE_FAILED;
+            $stmt = $this->mysqli->prepare('INSERT INTO images (queue_id, url) VALUES (?, ?)');
+            $stmt->bind_param('is', $queueId, $url);
+            $stmt->execute();
+            echo $stmt->error ? $stmt->error . "\n" : "Inserted $url\n";
+        }
+    }
+
+    /**
+     * Download queued files
+     */
+    public function actionDownload()
+    {
+        $stmt = $this->mysqli->prepare('SELECT id, url FROM images WHERE queue_id = ?');
+        $stmt->bind_param('i', $this->QUEUE_DOWNLOAD);
+        $stmt->execute();
+        $stmt->bind_result($id, $url);
+
+        $urlsToDownload = [];
+        while ($stmt->fetch()) {
+            $urlsToDownload[$id] = $url;
+        }
+        $stmt->close();
+
+        $headers = ['User-Agent' => $this->cfg['user_agent']];
+        foreach ($urlsToDownload as $id => $url) {
+            echo "Downloading $url\n";
+            $request = \Requests::get($url, $headers);
+
+            if ($request->success) {
+                $fileName = preg_replace('/[^a-z0-9.]+/i', '', basename($url));
+                $fileName = $this->cfg['download_dir'] . '/' . $id . '-' . $fileName;
+                file_put_contents($fileName, $request->body);
+                $urlStatus = $this->QUEUE_DONE;
+            } else {
+                $urlStatus = $this->QUEUE_FAILED;
+            }
+            $update = $this->mysqli->prepare('UPDATE images SET queue_id = ? WHERE id = ?');
+            $update->bind_param('ii', $urlStatus, $id);
+            $update->execute();
+        }
+    }
+
+    /**
+     * Display error message and exit
+     * @param $message
+     */
+    public function error($message)
+    {
+        die("\n$message\n\n");
+    }
+}
+
+$bot = new Bot();
+
+$command = isset($_SERVER['argv'][1]) ? $_SERVER['argv'][1] : '';
+
+switch ($command) {
+    case 'schedule':
+        if (!isset($_SERVER['argv'][2])) {
+            $bot->error('Please specify file with list of URLs');
+        }
+        $bot->actionSchedule($_SERVER['argv'][2]);
+        break;
+    case 'download':
+        $bot->actionDownload();
+        break;
+    default:
+        $bot->error(file_get_contents('help.txt'));
+}

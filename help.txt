@@ -1,0 +1,4 @@
+Usage:
+
+./bot schedule <filename>    # Read URLs from file and add them to download queue
+./bot download               # Download queued URLs

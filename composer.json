@@ -1,0 +1,20 @@
+{
+    "name": "pontorez/images-processor-bot",
+    "description": "Images Processor Bot",
+    "keywords": [
+        "bot",
+        "download",
+        "images"
+    ],
+    "require": {
+        "php": ">=5.3.0",
+        "rmccue/requests": ">=1.0"
+    },
+    "homepage": "https://github.com/Pontorez/images-processor-bot",
+    "type": "project",
+    "license": "The Unlicense",
+    "support": {
+        "issues": "https://github.com/Pontorez/images-processor-bot/issues?state=open",
+        "source": "https://github.com/Pontorez/images-processor-bot"
+    }
+}
